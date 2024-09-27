@@ -1,0 +1,68 @@
+version: '3'
+
+services:
+
+  traefik:
+    image: "traefik"
+    restart: "always"
+    command:
+      - "--api=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letls.acme.email=admin@l3xlabs.com"
+      - "--certificatesresolvers.letls.acme.storage=/certs/acme.json"
+      - "--certificatesresolvers.letls.acme.httpchallenge=true"
+      - "--certificatesresolvers.letls.acme.httpchallenge.entrypoint=web"
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "traefik_certs:/certs"
+
+  nginx:
+    image: "nginx:latest"
+    restart: "always"
+    volumes:
+      - nginx_conf:/etc/nginx/conf.d
+      - ./html:/usr/share/nginx/html
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nginx.entrypoints=websecure"
+      - "traefik.http.routers.nginx.rule=Host(`l3xlabs.com`)"
+      - "traefik.http.routers.nginx.tls=true"
+      - "traefik.http.routers.nginx.tls.certresolver=letls"
+
+  synapse:
+    image: docker.io/matrixdotorg/synapse:latest
+    restart: unless-stopped
+    environment:
+      - SYNAPSE_CONFIG_PATH=/data/homeserver.yaml
+    volumes:
+      - synapse_data:/data
+    depends_on:
+      - synapse_db
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.synapse.entrypoints=websecure
+      - traefik.http.routers.synapse.rule=Host(`matrix.l3xlabs.com`)
+      - traefik.http.routers.synapse.tls=true
+      - traefik.http.routers.synapse.tls.certresolver=letls  
+
+  synapse_db:
+    image: docker.io/postgres:14-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=synapse
+      - POSTGRES_PASSWORD=meru@meru
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - synapse_db_data:/var/lib/postgresql/data
+
+volumes:
+  traefik_certs:
+  nginx_conf:
+  synapse_data:
+  synapse_db_data:
